@@ -1,295 +1,258 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Plus, 
-  Settings, 
-  Trash2, 
-  Eye, 
-  EyeOff, 
+import {
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
   ChevronDown,
   ChevronUp,
+  Shield,
+  FileWarning,
+  Info,
   Sparkles,
-  Code,
   Brain
 } from 'lucide-react';
-import { getAllRuleTemplates, getCategoryList, getRulesByCategory } from '../data/ruleTemplates';
 
-export default function RulesManager({ customRules, setCustomRules, useDefaultRules, setUseDefaultRules }) {
-  const [isExpanded, setIsExpanded] = useState(true);
-  const [showTemplates, setShowTemplates] = useState(false);
-  const [newRule, setNewRule] = useState({
-    id: '',
-    name: '',
-    description: '',
-    pattern: '',
-    enabled: true,
-  });
-  const [isAddingRule, setIsAddingRule] = useState(false);
+// Normalize a violation that may be a plain string or a structured object
+function normalizeViolation(violation) {
+  if (typeof violation === 'string') {
+    // Determine severity from known keywords
+    const lower = violation.toLowerCase();
+    const severity =
+      lower.includes('email') || lower.includes('phone') ? 'HIGH'
+      : lower.includes('ssn') || lower.includes('credit') || lower.includes('passport') ? 'HIGH'
+      : 'MEDIUM';
 
-  const addCustomRule = () => {
-    if (newRule.id && newRule.name && newRule.description) {
-      setCustomRules([...customRules, { ...newRule, id: newRule.id.toLowerCase().replace(/\s+/g, '_') }]);
-      setNewRule({ id: '', name: '', description: '', pattern: '', enabled: true });
-      setIsAddingRule(false);
-    }
+    return {
+      rule: violation,          // e.g. "Email address detected"
+      severity,
+      description: violation,
+    };
+  }
+  return violation;             // already an object, pass through
+}
+
+function SeverityBadge({ severity }) {
+  const config = {
+    HIGH: { class: 'badge-danger', icon: XCircle },
+    MEDIUM: { class: 'bg-amber-500/20 text-amber-400 border border-amber-500/30', icon: AlertTriangle },
+    LOW: { class: 'badge-info', icon: Info },
   };
 
-  const removeRule = (id) => {
-    setCustomRules(customRules.filter(rule => rule.id !== id));
-  };
+  const { class: badgeClass, icon: Icon } = config[severity] || config.MEDIUM;
 
-  const toggleRule = (id) => {
-    setCustomRules(customRules.map(rule => 
-      rule.id === id ? { ...rule, enabled: !rule.enabled } : rule
-    ));
-  };
+  return (
+    <span className={`badge ${badgeClass} flex items-center gap-1`}>
+      <Icon className="w-3 h-3" />
+      {severity}
+    </span>
+  );
+}
 
-  const addTemplateRule = (template) => {
-    const exists = customRules.some(rule => rule.id === template.id);
-    if (!exists) {
-      setCustomRules([...customRules, { ...template }]);
-    }
-  };
+function ConfidenceBar({ confidence }) {
+  const percent = Math.round(confidence * 100);
+  const color =
+    percent >= 80 ? 'from-success-500 to-success-400' :
+      percent >= 50 ? 'from-amber-500 to-amber-400' :
+        'from-danger-500 to-danger-400';
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-dark-400">Confidence</span>
+        <span className="text-dark-200 font-semibold">{percent}%</span>
+      </div>
+      <div className="w-full h-2 bg-dark-700 rounded-full overflow-hidden">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${percent}%` }}
+          transition={{ duration: 0.8, ease: 'easeOut' }}
+          className={`h-full rounded-full bg-gradient-to-r ${color}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ViolationItem({ violation, index }) {
+  const [expanded, setExpanded] = useState(false);
+  const normalized = normalizeViolation(violation);
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
+      initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
-      className="card sticky top-6"
+      transition={{ delay: index * 0.08 }}
+      className="glass rounded-lg p-4"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Settings className="w-5 h-5 text-primary-400" />
-          <h3 className="text-lg font-display font-semibold text-dark-100">
-            Compliance Rules
-          </h3>
+      <div
+        className="flex items-start justify-between cursor-pointer"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <div className="flex items-start gap-3 flex-1">
+          <div className="mt-0.5">
+            <FileWarning className="w-4 h-4 text-danger-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <p className="text-sm font-medium text-dark-100">
+                {normalized.rule || normalized.rule_id || 'Unknown Rule'}
+              </p>
+              <SeverityBadge severity={normalized.severity || 'MEDIUM'} />
+            </div>
+            <p className="text-xs text-dark-400 line-clamp-2">
+              {normalized.description || normalized.message || 'Compliance violation detected'}
+            </p>
+          </div>
         </div>
-        <button
-          onClick={() => setIsExpanded(!isExpanded)}
-          className="p-1 glass rounded-lg hover:bg-white/10 transition-all duration-200 text-dark-300"
-        >
-          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+        <button className="p-1 ml-2 text-dark-400 hover:text-dark-200 transition-colors">
+          {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
         </button>
       </div>
 
       <AnimatePresence>
-        {isExpanded && (
+        {expanded && (
           <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="space-y-4"
+            className="mt-3 pt-3 border-t border-white/5 space-y-2"
           >
-            {/* Default Rules Toggle */}
-            <div className="glass rounded-lg p-4">
-              <label className="flex items-center justify-between cursor-pointer">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-primary-500/10 rounded-lg">
-                    <Sparkles className="w-4 h-4 text-primary-400" />
-                  </div>
-                  <div>
-                    <p className="font-medium text-dark-100 text-sm">Default Rules</p>
-                    <p className="text-xs text-dark-400">Email & Phone Detection</p>
-                  </div>
-                </div>
-                <div className="relative">
-                  <input
-                    type="checkbox"
-                    checked={useDefaultRules}
-                    onChange={(e) => setUseDefaultRules(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-dark-700 rounded-full peer peer-checked:bg-primary-500 transition-colors duration-200"></div>
-                  <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full transition-transform duration-200 peer-checked:translate-x-5"></div>
-                </div>
-              </label>
-            </div>
-
-            {/* Custom Rules List */}
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h4 className="text-sm font-medium text-dark-300">Custom Rules ({customRules.length})</h4>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowTemplates(!showTemplates)}
-                    className="text-xs px-3 py-1.5 glass rounded-lg hover:bg-white/10 transition-all duration-200 text-dark-300"
-                  >
-                    Templates
-                  </button>
-                  <button
-                    onClick={() => setIsAddingRule(!isAddingRule)}
-                    className="text-xs px-3 py-1.5 bg-primary-500/20 text-primary-400 rounded-lg hover:bg-primary-500/30 transition-all duration-200 flex items-center gap-1"
-                  >
-                    <Plus className="w-3 h-3" />
-                    New
-                  </button>
-                </div>
+            {normalized.evidence && (
+              <div>
+                <p className="text-xs font-medium text-dark-300 mb-1">Evidence</p>
+                <p className="text-xs text-dark-400 font-mono bg-dark-800/50 rounded-lg px-3 py-2 break-all">
+                  "{normalized.evidence}"
+                </p>
               </div>
-
-              {/* Templates Modal */}
-              <AnimatePresence>
-                {showTemplates && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="mb-3 glass rounded-lg p-4 max-h-64 overflow-y-auto scrollbar-hide"
-                  >
-                    <h5 className="text-xs font-semibold text-dark-300 mb-2">Rule Templates</h5>
-                    <div className="space-y-2">
-                      {getCategoryList().map(category => (
-                        <div key={category}>
-                          <p className="text-xs text-dark-400 uppercase tracking-wider mb-1">{category}</p>
-                          {getRulesByCategory(category).map(template => {
-                            const exists = customRules.some(r => r.id === template.id);
-                            return (
-                              <button
-                                key={template.id}
-                                onClick={() => addTemplateRule(template)}
-                                disabled={exists}
-                                className={`w-full text-left px-3 py-2 rounded-lg text-xs transition-all duration-200 flex items-center justify-between ${
-                                  exists 
-                                    ? 'bg-dark-700/50 text-dark-500 cursor-not-allowed' 
-                                    : 'glass hover:bg-white/10 text-dark-300'
-                                }`}
-                              >
-                                <div className="flex items-center gap-2">
-                                  {template.pattern ? (
-                                    <Code className="w-3 h-3 text-primary-400" />
-                                  ) : (
-                                    <Brain className="w-3 h-3 text-success-400" />
-                                  )}
-                                  <span>{template.name}</span>
-                                </div>
-                                {exists && <span className="text-xs">Added</span>}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Add New Rule Form */}
-              <AnimatePresence>
-                {isAddingRule && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mb-3 glass rounded-lg p-4 space-y-3"
-                  >
-                    <input
-                      type="text"
-                      placeholder="Rule ID (e.g., no_ssn)"
-                      value={newRule.id}
-                      onChange={(e) => setNewRule({ ...newRule, id: e.target.value })}
-                      className="input-field text-sm"
-                    />
-                    <input
-                      type="text"
-                      placeholder="Rule Name"
-                      value={newRule.name}
-                      onChange={(e) => setNewRule({ ...newRule, name: e.target.value })}
-                      className="input-field text-sm"
-                    />
-                    <textarea
-                      placeholder="Description (what this rule detects)"
-                      value={newRule.description}
-                      onChange={(e) => setNewRule({ ...newRule, description: e.target.value })}
-                      className="textarea-field text-sm"
-                      rows={2}
-                    />
-                    <input
-                      type="text"
-                      placeholder="Pattern (optional regex)"
-                      value={newRule.pattern}
-                      onChange={(e) => setNewRule({ ...newRule, pattern: e.target.value })}
-                      className="input-field text-sm font-mono"
-                    />
-                    <div className="flex gap-2">
-                      <button
-                        onClick={addCustomRule}
-                        className="flex-1 px-3 py-2 bg-primary-500/20 text-primary-400 rounded-lg hover:bg-primary-500/30 transition-all duration-200 text-sm"
-                      >
-                        Add Rule
-                      </button>
-                      <button
-                        onClick={() => setIsAddingRule(false)}
-                        className="px-3 py-2 glass rounded-lg hover:bg-white/10 transition-all duration-200 text-sm text-dark-300"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Rules List */}
-              <div className="space-y-2 max-h-96 overflow-y-auto scrollbar-hide">
-                <AnimatePresence>
-                  {customRules.map((rule) => (
-                    <motion.div
-                      key={rule.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: 20 }}
-                      className={`glass rounded-lg p-3 transition-all duration-200 ${
-                        rule.enabled ? '' : 'opacity-50'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            {rule.pattern ? (
-                              <Code className="w-3 h-3 text-primary-400" />
-                            ) : (
-                              <Brain className="w-3 h-3 text-success-400" />
-                            )}
-                            <p className="text-sm font-medium text-dark-100">{rule.name}</p>
-                          </div>
-                          <p className="text-xs text-dark-400 line-clamp-2">{rule.description}</p>
-                          {rule.pattern && (
-                            <p className="text-xs text-primary-400 font-mono mt-1 truncate">/{rule.pattern}/</p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1 ml-2">
-                          <button
-                            onClick={() => toggleRule(rule.id)}
-                            className="p-1.5 glass rounded hover:bg-white/10 transition-all duration-200"
-                          >
-                            {rule.enabled ? (
-                              <Eye className="w-3.5 h-3.5 text-success-400" />
-                            ) : (
-                              <EyeOff className="w-3.5 h-3.5 text-dark-400" />
-                            )}
-                          </button>
-                          <button
-                            onClick={() => removeRule(rule.id)}
-                            className="p-1.5 glass rounded hover:bg-danger-500/20 transition-all duration-200 text-dark-400 hover:text-danger-400"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
-
-                {customRules.length === 0 && (
-                  <div className="text-center py-8 text-dark-400 text-sm">
-                    <p>No custom rules added yet</p>
-                    <p className="text-xs mt-1">Click "New" or "Templates" to add rules</p>
-                  </div>
-                )}
+            )}
+            {normalized.location && (
+              <div>
+                <p className="text-xs font-medium text-dark-300 mb-1">Location</p>
+                <p className="text-xs text-dark-400">{normalized.location}</p>
               </div>
-            </div>
+            )}
+            {normalized.recommendation && (
+              <div>
+                <p className="text-xs font-medium text-dark-300 mb-1">Recommendation</p>
+                <p className="text-xs text-dark-400">{normalized.recommendation}</p>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
+    </motion.div>
+  );
+}
+
+export default function ResultsPanel({ result }) {
+  const [showDetails, setShowDetails] = useState(false);
+  const isCompliant = result.status === 'COMPLIANT';
+  const violations = result.violations || [];
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="card"
+    >
+      {/* Status Header */}
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className={`p-3 rounded-xl ${isCompliant ? 'bg-success-500/10' : 'bg-danger-500/10'}`}>
+            {isCompliant ? (
+              <CheckCircle2 className="w-6 h-6 text-success-400" />
+            ) : (
+              <XCircle className="w-6 h-6 text-danger-400" />
+            )}
+          </div>
+          <div>
+            <h3 className={`text-lg font-display font-bold ${isCompliant ? 'text-gradient-success' : 'text-gradient-danger'}`}>
+              {isCompliant ? 'Compliant' : 'Non-Compliant'}
+            </h3>
+            <p className="text-xs text-dark-400">
+              {isCompliant
+                ? 'No violations detected'
+                : `${violations.length} violation${violations.length !== 1 ? 's' : ''} found`}
+            </p>
+          </div>
+        </div>
+        <div className={`${isCompliant ? 'badge-success' : 'badge-danger'}`}>
+          {result.status}
+        </div>
+      </div>
+
+      {/* Confidence */}
+      {result.confidence != null && (
+        <div className="mb-5">
+          <ConfidenceBar confidence={result.confidence} />
+        </div>
+      )}
+
+      {/* Explanation / Summary */}
+      {(result.explanation || result.summary) && (
+        <div className="mb-5 glass rounded-lg p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Sparkles className="w-4 h-4 text-primary-400" />
+            <p className="text-sm font-medium text-dark-200">Summary</p>
+          </div>
+          <p className="text-sm text-dark-400 leading-relaxed">
+            {result.explanation || result.summary}
+          </p>
+        </div>
+      )}
+
+      {/* Violations */}
+      {violations.length > 0 && (
+        <div className="mb-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Shield className="w-4 h-4 text-danger-400" />
+            <h4 className="text-sm font-medium text-dark-200">Violations</h4>
+          </div>
+          <div className="space-y-2">
+            {violations.map((violation, index) => (
+              <ViolationItem
+                key={index}
+                violation={violation}
+                index={index}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Agent Details Toggle */}
+      {result.details && (
+        <div>
+          <button
+            onClick={() => setShowDetails(!showDetails)}
+            className="w-full flex items-center justify-between px-4 py-3 glass rounded-lg hover:bg-white/10 transition-all duration-200 text-sm text-dark-300"
+          >
+            <div className="flex items-center gap-2">
+              <Brain className="w-4 h-4 text-primary-400" />
+              <span>Agent Details</span>
+            </div>
+            {showDetails ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+
+          <AnimatePresence>
+            {showDetails && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="mt-2 glass rounded-lg p-4"
+              >
+                <pre className="text-xs text-dark-400 font-mono whitespace-pre-wrap break-all overflow-x-auto">
+                  {typeof result.details === 'string'
+                    ? result.details
+                    : JSON.stringify(result.details, null, 2)}
+                </pre>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
     </motion.div>
   );
 }
